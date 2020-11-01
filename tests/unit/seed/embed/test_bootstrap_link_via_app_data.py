@@ -1,8 +1,11 @@
 from __future__ import absolute_import, unicode_literals
 
+import contextlib
 import os
+import shutil
+import subprocess
 import sys
-from stat import S_IREAD, S_IRGRP, S_IROTH, S_IWUSR
+from stat import S_IRGRP, S_IROTH, S_IRUSR, S_IXUSR
 from threading import Thread
 
 import pytest
@@ -107,21 +110,70 @@ def test_seed_link_via_app_data(tmp_path, coverage_env, current_fastest, copies)
         os.environ.pop(str("PIP_REQ_TRACKER"))
 
 
+@contextlib.contextmanager
+def readonly_dir(d):
+    orig_mode = os.stat(d).st_mode
+    os.chmod(str(d), S_IRUSR | S_IXUSR | S_IRGRP | S_IROTH)
+    try:
+        yield
+    finally:
+        os.chmod(str(d), orig_mode)
+
+
 @pytest.fixture()
 def read_only_app_data(temp_app_data):
     temp_app_data.mkdir()
-    try:
-        os.chmod(str(temp_app_data), S_IREAD | S_IRGRP | S_IROTH)
+    with readonly_dir(temp_app_data):
         yield temp_app_data
-    finally:
-        os.chmod(str(temp_app_data), S_IWUSR | S_IREAD)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows only applies R/O to files")
-def test_base_bootstrap_link_via_app_data_not_writable(tmp_path, current_fastest, read_only_app_data, monkeypatch):
+def test_base_bootstrap_link_via_app_data_not_writable(tmp_path, current_fastest, read_only_app_data):
     dest = tmp_path / "venv"
-    result = cli_run(["--seeder", "app-data", "--creator", current_fastest, "--reset-app-data", "-vv", str(dest)])
+    with pytest.raises(RuntimeError) as excinfo:
+        result = cli_run(["--seeder", "app-data", "--creator", current_fastest, "-vv", str(dest)])
+    (msg,) = excinfo.value.args
+    assert msg == "attempted to write to readonly cache directory"
     assert result
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows only applies R/O to files")
+def test_populated_readonly_cache_and_symlinked_app_data(tmp_path, current_fastest, temp_app_data, monkeypatch):
+    monkeypatch.setenv("VIRTUALENV_SYMLINK_APP_DATA", "1")
+
+    dest = tmp_path / "venv"
+    result = cli_run(
+        [
+            "--seeder",
+            "app-data",
+            "--creator",
+            current_fastest,
+            "-vv",
+            str(dest),
+        ]
+    )
+    assert result
+
+    subprocess.check_call((dest.joinpath("bin/python"), "-c", "import pip"))
+    shutil.rmtree(dest)
+
+    # make the app data read only
+    with readonly_dir(temp_app_data):
+        # should still succeed
+        result = cli_run(
+            [
+                "--seeder",
+                "app-data",
+                "--creator",
+                current_fastest,
+                "-vv",
+                str(dest),
+            ]
+        )
+        assert result
+
+        subprocess.check_call((dest.joinpath("bin/python"), "-c", "import pip"))
+        shutil.rmtree(dest)
 
 
 @pytest.mark.slow

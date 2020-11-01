@@ -157,7 +157,7 @@ class JSONStoreDisk(ContentStore):
         try:
             folder.mkdir(parents=True, exist_ok=True)
         except OSError:
-            pass
+            raise RuntimeError("attempted to write to readonly cache directory")
         self.file.write_text(ensure_text(json.dumps(content, sort_keys=True, indent=2)))
         logging.debug("wrote {} at %s".format(self.msg), *self.msg_args)
 

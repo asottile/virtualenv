@@ -24,34 +24,27 @@ class AppDataAction(Action):
     @staticmethod
     def _check_folder(folder):
         folder = os.path.abspath(folder)
-        if not os.path.exists(folder):
+        if not os.path.isdir(folder):
             try:
                 os.makedirs(folder)
                 logging.debug("created app data folder %s", folder)
             except OSError as exception:
                 logging.info("could not create app data folder %s due to %r", folder, exception)
                 return None
-        write_enabled = os.access(folder, os.W_OK)
-        if write_enabled:
-            return folder
-        logging.debug("app data folder %s has no write access", folder)
-        return None
+        return folder
 
     @staticmethod
     def default():
-        for folder in AppDataAction._app_data_candidates():
-            folder = AppDataAction._check_folder(folder)
-            if folder is not None:
-                return AppDataDiskFolder(folder)
-        return AppDataDisabled()
-
-    @staticmethod
-    def _app_data_candidates():
         key = str("VIRTUALENV_OVERRIDE_APP_DATA")
         if key in os.environ:
-            yield os.environ[key]
+            candidate = os.environ[key]
         else:
-            yield user_data_dir(appname="virtualenv", appauthor="pypa")
+            candidate = user_data_dir(appname="virtualenv", appauthor="pypa")
+
+        folder = AppDataAction._check_folder(candidate)
+        if folder is not None:
+            return AppDataDiskFolder(folder)
+        return AppDataDisabled()
 
 
 __all__ = (

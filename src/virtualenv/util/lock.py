@@ -13,12 +13,6 @@ from virtualenv.util.path import Path
 
 class _CountedFileLock(FileLock):
     def __init__(self, lock_file):
-        parent = os.path.dirname(lock_file)
-        if not os.path.exists(parent):
-            try:
-                os.makedirs(parent)
-            except OSError:
-                pass
         super(_CountedFileLock, self).__init__(lock_file)
         self.count = 0
         self.thread_safe = RLock()
@@ -32,8 +26,34 @@ class _CountedFileLock(FileLock):
     def release(self, force=False):
         with self.thread_safe:
             if self.count == 1:
-                super(_CountedFileLock, self).release()
+                super(_CountedFileLock, self).release(force=force)
             self.count = max(self.count - 1, 0)
+
+
+class _DummyReadonlyLock(FileLock):
+    def __init__(self, lock_file):
+        super(_DummyReadonlyLock, self).__init__(lock_file)
+        self.count = 0
+        self.thread_safe = RLock()
+
+    def acquire(self, timeout=None, poll_intervall=0.05):
+        with self.thread_safe:
+            self.count += 1
+
+    def release(self, force=False):
+        with self.thread_safe:
+            self.count = max(self.count - 1, 0)
+
+
+def _make_file_lock(lock_file):
+    parent = os.path.dirname(lock_file)
+    try:
+        os.makedirs(parent)
+    except OSError:
+        if not os.path.isdir(parent):
+            return _DummyReadonlyLock(lock_file)
+
+    return _CountedFileLock(lock_file)
 
 
 _lock_store = {}
@@ -59,7 +79,7 @@ class ReentrantFileLock(object):
         lock_file = str(self.path / "{}.lock".format(name))
         with _store_lock:
             if lock_file not in _lock_store:
-                _lock_store[lock_file] = _CountedFileLock(lock_file)
+                _lock_store[lock_file] = _make_file_lock(lock_file)
             return _lock_store[lock_file]
 
     @staticmethod

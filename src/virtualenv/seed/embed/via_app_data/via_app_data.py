@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from subprocess import CalledProcessError
 from threading import Lock, Thread
 
+from virtualenv.app_data.via_tempdir import TempAppData
 from virtualenv.info import fs_supports_symlink
 from virtualenv.seed.embed.base_embed import BaseEmbed
 from virtualenv.seed.wheels import get_wheel
@@ -39,6 +40,8 @@ class FromAppData(BaseEmbed):
         )
 
     def run(self, creator):
+        if isinstance(creator, TempAppData) and self.symlinks:
+            raise RuntimeError("--symlink-app-data is not supported with temporary app data")
         if not self.enabled:
             return
         with self._get_seed_wheels(creator) as name_to_whl:
